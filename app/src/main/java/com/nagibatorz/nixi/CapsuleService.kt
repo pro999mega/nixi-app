@@ -2,6 +2,7 @@ package com.nagibatorz.nixi
 
 import android.Manifest
 import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -215,7 +216,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             y = 120
         }
 
-        panel.findViewById<View>(R.id.capsuleRow).setOnTouchListener { _, event ->
+        capsuleRow.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     downRawX = event.rawX
@@ -290,8 +291,8 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         if (dotAnim == null) {
             dotAnim = ObjectAnimator.ofFloat(dot, "alpha", 1f, 0.25f).apply {
                 duration = 650
-                repeatMode = ObjectAnimator.REVERSE
-                repeatCount = ObjectAnimator.INFINITE
+                repeatMode = ValueAnimator.REVERSE
+                repeatCount = ValueAnimator.INFINITE
             }
         }
         dotAnim?.start()
