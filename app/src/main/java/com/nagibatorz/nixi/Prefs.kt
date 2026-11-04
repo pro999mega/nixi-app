@@ -4,12 +4,21 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Одна реплика диалога. */
+/** Одна реплика диалога капсулы. */
 data class Turn(val role: String, val content: String)
+
+/** Одно сообщение в чате приложения. */
+data class Msg(val role: String, val content: String, val ts: Long)
+
+/** Один чат из истории. */
+data class Chat(val id: String, val title: String, val messages: List<Msg>, val updated: Long)
 
 object Prefs {
 
     private const val FILE = "nixi"
+    private const val KEY_CHATS = "chats"
+    private const val KEY_CURRENT = "currentChat"
+
     const val DEFAULT_TEXT = "google/gemma-4-31b-it:free"
     const val DEFAULT_VISION = "google/gemma-4-31b-it:free"
 
@@ -54,6 +63,8 @@ object Prefs {
         sp(c).edit().putBoolean("wakeWord", value).apply()
     }
 
+    // ---------------- история диалога капсулы (короткая память голоса) ----------------
+
     fun history(c: Context): List<Turn> {
         val raw = sp(c).getString("history", "[]").orEmpty()
         val out = ArrayList<Turn>()
@@ -85,5 +96,110 @@ object Prefs {
 
     fun clearHistory(c: Context) {
         sp(c).edit().putString("history", "[]").apply()
+    }
+
+    // ---------------- чаты приложения ----------------
+
+    fun chats(c: Context): List<Chat> {
+        val raw = sp(c).getString(KEY_CHATS, "[]").orEmpty()
+        val out = ArrayList<Chat>()
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id.isBlank()) continue
+                val msgs = ArrayList<Msg>()
+                val ma = o.optJSONArray("messages") ?: JSONArray()
+                for (j in 0 until ma.length()) {
+                    val m = ma.optJSONObject(j) ?: continue
+                    val role = m.optString("role")
+                    val content = m.optString("content")
+                    if (role.isNotBlank() && content.isNotBlank()) {
+                        msgs.add(Msg(role, content, m.optLong("ts", 0L)))
+                    }
+                }
+                out.add(
+                    Chat(
+                        id,
+                        o.optString("title", "Новый чат").ifBlank { "Новый чат" },
+                        msgs,
+                        o.optLong("updated", 0L)
+                    )
+                )
+            }
+        } catch (t: Throwable) {
+            // битые чаты — начинаем с чистого листа
+        }
+        out.sortByDescending { it.updated }
+        return out
+    }
+
+    fun chatById(c: Context, id: String): Chat? = chats(c).firstOrNull { it.id == id }
+
+    fun newChatId(): String = "c" + System.currentTimeMillis()
+
+    private fun saveChats(c: Context, list: List<Chat>) {
+        val arr = JSONArray()
+        for (ch in list) {
+            val ma = JSONArray()
+            for (m in ch.messages) {
+                ma.put(
+                    JSONObject()
+                        .put("role", m.role)
+                        .put("content", m.content)
+                        .put("ts", m.ts)
+                )
+            }
+            arr.put(
+                JSONObject()
+                    .put("id", ch.id)
+                    .put("title", ch.title)
+                    .put("messages", ma)
+                    .put("updated", ch.updated)
+            )
+        }
+        sp(c).edit().putString(KEY_CHATS, arr.toString()).apply()
+    }
+
+    /** Дописать сообщение в чат. Чат создаётся сам, если его ещё нет. */
+    fun appendMessage(c: Context, chatId: String, role: String, content: String) {
+        if (content.isBlank() || chatId.isBlank()) return
+        val all = ArrayList(chats(c))
+        val idx = all.indexOfFirst { it.id == chatId }
+        val now = System.currentTimeMillis()
+        val msg = Msg(role, content, now)
+
+        if (idx >= 0) {
+            val old = all[idx]
+            val msgs = ArrayList(old.messages)
+            msgs.add(msg)
+            while (msgs.size > 200) msgs.removeAt(0)
+            val title = if (old.title == "Новый чат" && role == "user") {
+                content.trim().take(34).ifBlank { "Новый чат" }
+            } else {
+                old.title
+            }
+            all[idx] = Chat(old.id, title, msgs, now)
+        } else {
+            val title = if (role == "user") content.trim().take(34).ifBlank { "Новый чат" } else "Новый чат"
+            all.add(Chat(chatId, title, listOf(msg), now))
+        }
+        saveChats(c, all)
+    }
+
+    fun deleteChat(c: Context, id: String) {
+        saveChats(c, chats(c).filterNot { it.id == id })
+        if (currentChat(c) == id) sp(c).edit().remove(KEY_CURRENT).apply()
+    }
+
+    fun clearChats(c: Context) {
+        sp(c).edit().remove(KEY_CHATS).remove(KEY_CURRENT).apply()
+    }
+
+    fun currentChat(c: Context): String = sp(c).getString(KEY_CURRENT, "").orEmpty()
+
+    fun setCurrentChat(c: Context, id: String) {
+        sp(c).edit().putString(KEY_CURRENT, id).apply()
     }
 }
