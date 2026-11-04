@@ -69,7 +69,7 @@ class ScreenActivity : AppCompatActivity() {
         val density = metrics.densityDpi
 
         val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        val virtualDisplay = projection.createVirtualDisplay(
+        projection.createVirtualDisplay(
             "nixi-screen",
             width, height, density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
@@ -81,28 +81,44 @@ class ScreenActivity : AppCompatActivity() {
         }, handler)
 
         handler.postDelayed({
-            var image: Image? = null
             try {
-                image = reader.acquireLatestImage()
+                val image: Image? = reader.acquireLatestImage()
                 if (image == null) {
                     Bus.emit("Не получилось снять экран, попробуй ещё раз")
                     finish()
-                } else {
+                    return@postDelayed
+                }
+                val base64: String?
+                try {
                     val full = toBitmap(image, width, height)
                     val small = scaleDown(full, 1024)
                     val out = ByteArrayOutputStream()
                     small.compress(Bitmap.CompressFormat.JPEG, 80, out)
-                    val base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                    base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                } finally {
+                    image.close()
+                }
+
+                if (base64.isNullOrBlank()) {
+                    Bus.emit("Снимок экрана получился пустым, попробуй ещё раз")
+                    finish()
+                } else {
                     askVision(base64)
                 }
             } catch (t: Throwable) {
                 Bus.emit("Ошибка захвата экрана: ${t.message ?: "неизвестно"}")
                 finish()
             } finally {
-                image?.close()
-                virtualDisplay.release()
-                reader.close()
-                projection.stop()
+                try {
+                    reader.close()
+                } catch (t: Throwable) {
+                    // уже закрыт
+                }
+                try {
+                    projection.stop()
+                } catch (t: Throwable) {
+                    // уже остановлен
+                }
             }
         }, 900)
     }
@@ -113,9 +129,8 @@ class ScreenActivity : AppCompatActivity() {
         val pixelStride = plane.pixelStride
         val rowStride = plane.rowStride
         val rowPadding = rowStride - pixelStride * width
-        val padded = Bitmap.createBitmap(
-            width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888
-        )
+        val paddedWidth = width + rowPadding / pixelStride
+        val padded = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888)
         padded.copyPixelsFromBuffer(buffer)
         return Bitmap.createBitmap(padded, 0, 0, width, height)
     }
@@ -123,7 +138,8 @@ class ScreenActivity : AppCompatActivity() {
     private fun scaleDown(source: Bitmap, maxWidth: Int): Bitmap {
         if (source.width <= maxWidth) return source
         val ratio = maxWidth.toFloat() / source.width
-        return Bitmap.createScaledBitmap(source, maxWidth, (source.height * ratio).toInt(), true)
+        val targetHeight = (source.height * ratio).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(source, maxWidth, targetHeight, true)
     }
 
     private fun askVision(base64: String) {
