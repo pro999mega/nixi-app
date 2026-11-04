@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,16 +34,38 @@ jobs:
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "sdk.dir=$SDK" > local.properties
-          echo "SDK: $SDK"
-          ls "$SDK/platforms" || true
-          ls "$SDK/build-tools" || true
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
           "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
 
       - name: Собрать APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        id: assemble
+        continue-on-error: true
+        run: gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Отправить ошибку в Issue
+        if: steps.assemble.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "Ошибка сборки. Строки с ошибками:"
+            echo '```'
+            grep -nE "^e: |error:|FAILURE:|What went wrong|Caused by:|Execution failed|FAILED" build.log | head -60 || true
+            echo '```'
+            echo
+            echo "Хвост лога:"
+            echo '```'
+            tail -60 build.log
+            echo '```'
+          } > body.md
+          gh issue create --title "Ошибка сборки APK" --body-file body.md || true
+
+      - name: Уронить сборку, если не собралось
+        if: steps.assemble.outcome == 'failure'
+        run: exit 1
 
       - name: Отдать APK
+        if: steps.assemble.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: nixi-debug-apk
