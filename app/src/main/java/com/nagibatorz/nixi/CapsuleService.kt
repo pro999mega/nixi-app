@@ -71,13 +71,15 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
     private var mode = Mode.COMMAND
     private var listening = false
     private var busy = false
-    private var pulse: ObjectAnimator? = null
+    private var dotAnim: ObjectAnimator? = null
 
     private var downRawX = 0f
     private var downRawY = 0f
     private var startX = 0
     private var startY = 0
     private var dragging = false
+
+    private val ru: Locale = Locale.forLanguageTag("ru")
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -103,7 +105,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status != TextToSpeech.SUCCESS) return
-        tts?.language = Locale("ru", "RU")
+        tts?.language = Locale.forLanguageTag("ru-RU")
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit
 
@@ -111,7 +113,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
                 handler.post { scheduleWake(1200) }
             }
 
-            @Deprecated("Deprecated in Java")
+            @Suppress("OVERRIDE_DEPRECATION")
             override fun onError(utteranceId: String?) {
                 handler.post { scheduleWake(1200) }
             }
@@ -210,7 +212,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 0
-            y = 0
+            y = 120
         }
 
         panel.findViewById<View>(R.id.capsuleRow).setOnTouchListener { _, event ->
@@ -284,21 +286,25 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         listen(Mode.COMMAND)
     }
 
-    private fun pulse(on: Boolean) {
-        if (on) {
-            if (pulse == null) {
-                pulse = ObjectAnimator.ofFloat(dot, "alpha", 1f, 0.25f).apply {
-                    duration = 650
-                    repeatMode = ObjectAnimator.REVERSE
-                    repeatCount = ObjectAnimator.INFINITE
-                }
+    private fun startDotPulse() {
+        if (dotAnim == null) {
+            dotAnim = ObjectAnimator.ofFloat(dot, "alpha", 1f, 0.25f).apply {
+                duration = 650
+                repeatMode = ObjectAnimator.REVERSE
+                repeatCount = ObjectAnimator.INFINITE
             }
-            pulse?.start()
-        } else {
-            pulse?.cancel()
-            pulse = null
-            dot.alpha = 1f
         }
+        dotAnim?.start()
+    }
+
+    private fun stopDotPulse() {
+        try {
+            dotAnim?.cancel()
+        } catch (t: Throwable) {
+            // ничего
+        }
+        dotAnim = null
+        dot.alpha = 1f
     }
 
     private fun listen(m: Mode) {
@@ -317,7 +323,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         if (m == Mode.COMMAND) {
             hideAnswerPanel()
             setState("слушаю…")
-            pulse(true)
+            startDotPulse()
         }
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).also {
@@ -341,7 +347,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             recognizer?.startListening(intent)
         } catch (t: Throwable) {
             listening = false
-            pulse(false)
+            stopDotPulse()
             if (m == Mode.COMMAND) setState("микрофон не ответил")
         }
     }
@@ -355,7 +361,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             // ничего
         }
         recognizer = null
-        pulse(false)
+        stopDotPulse()
     }
 
     private fun scheduleWake(delay: Long = 500) {
@@ -382,7 +388,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
 
         override fun onError(error: Int) {
             listening = false
-            pulse(false)
+            stopDotPulse()
 
             if (mode == Mode.WAKE) {
                 handler.postDelayed({
@@ -407,7 +413,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
 
         override fun onResults(results: Bundle?) {
             listening = false
-            pulse(false)
+            stopDotPulse()
             val text = results
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
@@ -444,12 +450,12 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun isWake(text: String): Boolean {
-        val t = text.lowercase(Locale("ru")).replace('ё', 'е')
+        val t = text.lowercase(ru).replace('ё', 'е')
         return WAKE_WORDS.any { t.contains(it) }
     }
 
     private fun handleCommand(raw: String) {
-        val text = raw.lowercase(Locale("ru")).replace('ё', 'е')
+        val text = raw.lowercase(ru).replace('ё', 'е')
 
         when {
             text.contains("очисти историю") || text.contains("забудь всё") -> {
@@ -466,7 +472,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             }
 
             text.contains("который час") || text.contains("сколько времени") -> {
-                val time = SimpleDateFormat("HH:mm", Locale("ru")).format(Date())
+                val time = SimpleDateFormat("HH:mm", ru).format(Date())
                 respond("Сейчас $time")
                 return
             }
@@ -568,11 +574,6 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         Bus.listener = null
         handler.removeCallbacksAndMessages(null)
         stopListen()
-        try {
-            pulse?.cancel()
-        } catch (t: Throwable) {
-            // ничего
-        }
         tts?.stop()
         tts?.shutdown()
         tts = null
