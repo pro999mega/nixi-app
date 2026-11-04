@@ -1,5 +1,6 @@
 package com.nagibatorz.nixi
 
+import android.Manifest
 import android.animation.ObjectAnimator
 import android.app.Notification
 import android.app.NotificationChannel
@@ -8,6 +9,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -28,6 +30,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -150,10 +153,14 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         val notification = builder.build()
 
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(
-                NOTIFICATION_ID, notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            val micGranted = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (micGranted) {
+                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            startForeground(NOTIFICATION_ID, notification, types)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -176,6 +183,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         val capsuleRow = panel.findViewById<View>(R.id.capsuleRow)
         capsuleRow.background = rounded(0xFF121212.toInt(), 999f)
         actions.background = rounded(0xFF1A1A1A.toInt(), 48f)
+        dot.background = rounded(0xFFFF7A18.toInt(), 999f)
 
         panel.findViewById<View>(R.id.btnMic).setOnClickListener {
             if (busy) {
@@ -283,14 +291,12 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
                     duration = 650
                     repeatMode = ObjectAnimator.REVERSE
                     repeatCount = ObjectAnimator.INFINITE
-                    start()
                 }
-            } else {
-                pulse?.resume()
-                pulse?.start()
             }
+            pulse?.start()
         } else {
-            pulse?.pause()
+            pulse?.cancel()
+            pulse = null
             dot.alpha = 1f
         }
     }
@@ -355,13 +361,11 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
     private fun scheduleWake(delay: Long = 500) {
         if (!Prefs.wakeWord(this) || busy) return
         handler.postDelayed({
-            if (!listening && !busy && Prefs.wakeWord(this) && !isDestroyed()) {
+            if (!listening && !busy && Prefs.wakeWord(this)) {
                 listen(Mode.WAKE)
             }
         }, delay)
     }
-
-    private fun isDestroyed(): Boolean = false
 
     private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
@@ -499,12 +503,9 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         busy = true
         setState("думаю…")
 
-        val persona = Prefs.persona(this)
-        val history = Prefs.history(this)
-
         val messages = JSONArray().apply {
-            put(JSONObject().put("role", "system").put("content", persona))
-            for (turn in history) {
+            put(JSONObject().put("role", "system").put("content", Prefs.persona(this@CapsuleService)))
+            for (turn in Prefs.history(this@CapsuleService)) {
                 put(JSONObject().put("role", turn.role).put("content", turn.content))
             }
             put(JSONObject().put("role", "user").put("content", prompt))
