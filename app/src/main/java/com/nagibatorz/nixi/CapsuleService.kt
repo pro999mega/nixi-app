@@ -1,5 +1,6 @@
 package com.nagibatorz.nixi
 
+import android.animation.ObjectAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -18,6 +20,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -45,25 +48,31 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         const val CHANNEL_ID = "nixi"
         const val NOTIFICATION_ID = 42
         const val ACTION_STOP = "com.nagibatorz.nixi.STOP"
-        const val SYSTEM_PROMPT =
-            "Ты Никси — голосовой ассистент внутри телефона. Отвечай по-русски, дружелюбно и очень коротко: " +
-                "одно-три предложения, без списков, без markdown и без эмодзи, потому что твой ответ читается вслух."
+        private val WAKE_WORDS = listOf("никси", "никс и", "ники", "никс")
     }
+
+    private enum class Mode { WAKE, COMMAND }
 
     private lateinit var windowManager: WindowManager
     private lateinit var panel: View
     private lateinit var tvState: TextView
     private lateinit var tvAnswer: TextView
     private lateinit var actions: View
+    private lateinit var dot: View
     private lateinit var params: WindowManager.LayoutParams
 
     private var tts: TextToSpeech? = null
     private var recognizer: SpeechRecognizer? = null
     private val handler = Handler(Looper.getMainLooper())
 
+    private var mode = Mode.COMMAND
     private var listening = false
     private var busy = false
+    private var pulse: ObjectAnimator? = null
+
+    private var downRawX = 0f
     private var downRawY = 0f
+    private var startX = 0
     private var startY = 0
     private var dragging = false
 
@@ -76,6 +85,9 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         buildOverlay()
         tts = TextToSpeech(this, this)
         Bus.listener = { text -> respond(text) }
+        if (Prefs.wakeWord(this)) {
+            handler.postDelayed({ listen(Mode.WAKE) }, 900)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -87,9 +99,20 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts?.language = Locale("ru", "RU")
-        }
+        if (status != TextToSpeech.SUCCESS) return
+        tts?.language = Locale("ru", "RU")
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+
+            override fun onDone(utteranceId: String?) {
+                handler.post { scheduleWake(1200) }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                handler.post { scheduleWake(1200) }
+            }
+        })
     }
 
     private fun startAsForeground() {
@@ -111,7 +134,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
 
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Nixi на связи")
-            .setContentText("Нажми капсулу сверху и говори")
+            .setContentText("Скажи «Никси» или нажми капсулу")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setContentIntent(openApp)
@@ -136,17 +159,37 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun rounded(color: Int, radiusPx: Float): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(color)
+            cornerRadius = radiusPx
+        }
+
     private fun buildOverlay() {
         panel = LayoutInflater.from(this).inflate(R.layout.capsule, null)
         tvState = panel.findViewById(R.id.tvState)
         tvAnswer = panel.findViewById(R.id.tvAnswer)
         actions = panel.findViewById(R.id.actions)
+        dot = panel.findViewById(R.id.viewDot)
 
-        panel.findViewById<View>(R.id.btnMic).setOnClickListener { startListening() }
+        val capsuleRow = panel.findViewById<View>(R.id.capsuleRow)
+        capsuleRow.background = rounded(0xFF121212.toInt(), 999f)
+        actions.background = rounded(0xFF1A1A1A.toInt(), 48f)
+
+        panel.findViewById<View>(R.id.btnMic).setOnClickListener {
+            if (busy) {
+                setState("подожди, отвечаю")
+            } else {
+                stopListen()
+                listen(Mode.COMMAND)
+            }
+        }
         panel.findViewById<View>(R.id.btnScreen).setOnClickListener { openScreen() }
         panel.findViewById<View>(R.id.btnClose).setOnClickListener {
             hideAnswerPanel()
-            setState("здесь")
+            setState("Никси")
+            scheduleWake(400)
         }
 
         params = WindowManager.LayoutParams(
@@ -157,58 +200,120 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
             y = 0
         }
 
         panel.findViewById<View>(R.id.capsuleRow).setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
                     downRawY = event.rawY
+                    startX = params.x
                     startY = params.y
                     dragging = false
                     true
                 }
+
                 MotionEvent.ACTION_MOVE -> {
-                    val dy = event.rawY - downRawY
-                    if (Math.abs(dy) > 18f) {
-                        dragging = true
-                        params.y = (startY + dy).toInt()
-                        windowManager.updateViewLayout(panel, params)
+                    val dx = (event.rawX - downRawX).toInt()
+                    val dy = (event.rawY - downRawY).toInt()
+                    if (Math.abs(dx) > 16 || Math.abs(dy) > 16) dragging = true
+                    if (dragging) {
+                        params.x = startX + dx
+                        params.y = startY + dy
+                        try {
+                            windowManager.updateViewLayout(panel, params)
+                        } catch (t: Throwable) {
+                            // окно уже убрали
+                        }
                     }
                     true
                 }
+
                 MotionEvent.ACTION_UP -> {
-                    if (!dragging) startListening()
+                    if (!dragging) onCapsuleTap()
+                    dragging = false
                     true
                 }
+
                 else -> false
             }
         }
 
         try {
             windowManager.addView(panel, params)
+            panel.post {
+                val screenWidth = resources.displayMetrics.widthPixels
+                if (panel.width > 0 && panel.width < screenWidth) {
+                    params.x = (screenWidth - panel.width) / 2
+                    try {
+                        windowManager.updateViewLayout(panel, params)
+                    } catch (t: Throwable) {
+                        // окно уже убрали
+                    }
+                }
+            }
         } catch (t: Throwable) {
             Toast.makeText(this, "Нет разрешения «поверх других приложений»", Toast.LENGTH_LONG).show()
             stopSelf()
         }
     }
 
-    private fun startListening() {
-        if (listening) return
+    private fun onCapsuleTap() {
         if (busy) {
             setState("подожди, отвечаю")
             return
         }
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            respond("На телефоне не включено распознавание речи. Проверь «Google» и русский язык в настройках.")
+        if (listening && mode == Mode.COMMAND) {
+            stopListen()
+            setState("Никси")
+            scheduleWake(300)
             return
         }
-        listening = true
-        hideAnswerPanel()
-        setState("слушаю…")
+        stopListen()
+        listen(Mode.COMMAND)
+    }
 
-        recognizer?.destroy()
+    private fun pulse(on: Boolean) {
+        if (on) {
+            if (pulse == null) {
+                pulse = ObjectAnimator.ofFloat(dot, "alpha", 1f, 0.25f).apply {
+                    duration = 650
+                    repeatMode = ObjectAnimator.REVERSE
+                    repeatCount = ObjectAnimator.INFINITE
+                    start()
+                }
+            } else {
+                pulse?.resume()
+                pulse?.start()
+            }
+        } else {
+            pulse?.pause()
+            dot.alpha = 1f
+        }
+    }
+
+    private fun listen(m: Mode) {
+        if (busy) return
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            if (m == Mode.COMMAND) {
+                respond("На телефоне не включено распознавание речи. Проверь Google и русский язык в настройках.")
+            }
+            return
+        }
+
+        stopListen()
+        mode = m
+        listening = true
+
+        if (m == Mode.COMMAND) {
+            hideAnswerPanel()
+            setState("слушаю…")
+            pulse(true)
+        }
+
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).also {
             it.setRecognitionListener(recognitionListener)
         }
@@ -216,21 +321,51 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, m == Mode.COMMAND)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            if (m == Mode.WAKE) {
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                putExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L
+                )
+            }
         }
 
         try {
             recognizer?.startListening(intent)
         } catch (t: Throwable) {
             listening = false
-            setState("микрофон не ответил")
+            pulse(false)
+            if (m == Mode.COMMAND) setState("микрофон не ответил")
         }
     }
 
+    private fun stopListen() {
+        listening = false
+        try {
+            recognizer?.cancel()
+            recognizer?.destroy()
+        } catch (t: Throwable) {
+            // ничего
+        }
+        recognizer = null
+        pulse(false)
+    }
+
+    private fun scheduleWake(delay: Long = 500) {
+        if (!Prefs.wakeWord(this) || busy) return
+        handler.postDelayed({
+            if (!listening && !busy && Prefs.wakeWord(this) && !isDestroyed()) {
+                listen(Mode.WAKE)
+            }
+        }, delay)
+    }
+
+    private fun isDestroyed(): Boolean = false
+
     private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            setState("говори…")
+            if (mode == Mode.COMMAND) setState("говори…")
         }
 
         override fun onBeginningOfSpeech() = Unit
@@ -238,36 +373,63 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         override fun onBufferReceived(buffer: ByteArray?) = Unit
 
         override fun onEndOfSpeech() {
-            setState("думаю…")
+            if (mode == Mode.COMMAND) setState("думаю…")
         }
 
         override fun onError(error: Int) {
             listening = false
+            pulse(false)
+
+            if (mode == Mode.WAKE) {
+                handler.postDelayed({
+                    if (!busy && Prefs.wakeWord(this@CapsuleService)) listen(Mode.WAKE)
+                }, 400)
+                return
+            }
+
             when (error) {
                 SpeechRecognizer.ERROR_NO_MATCH,
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> setState("не расслышал")
+
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                     setState("нет доступа к микрофону")
                     respond("Дай доступ к микрофону в настройках Nixi")
                 }
+
                 else -> setState("ошибка распознавания")
             }
+            scheduleWake(1500)
         }
 
         override fun onResults(results: Bundle?) {
             listening = false
+            pulse(false)
             val text = results
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
                 .orEmpty()
+
+            if (mode == Mode.WAKE) {
+                if (isWake(text)) {
+                    setState("слушаю…")
+                    speakOut("Да?")
+                    handler.postDelayed({ listen(Mode.COMMAND) }, 700)
+                } else {
+                    scheduleWake(300)
+                }
+                return
+            }
+
             if (text.isBlank()) {
                 setState("пусто, попробуй снова")
+                scheduleWake(1200)
                 return
             }
             handleCommand(text)
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
+            if (mode != Mode.COMMAND) return
             val partial = partialResults
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
@@ -277,28 +439,54 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
     }
 
+    private fun isWake(text: String): Boolean {
+        val t = text.lowercase(Locale("ru")).replace('ё', 'е')
+        return WAKE_WORDS.any { t.contains(it) }
+    }
+
     private fun handleCommand(raw: String) {
-        val text = raw.lowercase(Locale("ru"))
+        val text = raw.lowercase(Locale("ru")).replace('ё', 'е')
+
         when {
+            text.contains("очисти историю") || text.contains("забудь всё") -> {
+                Prefs.clearHistory(this)
+                respond("Историю очистил")
+                return
+            }
+
             text.contains("что на экране") ||
                 text.contains("проанализируй") ||
-                text.contains("посмотри экран") -> openScreen()
+                text.contains("посмотри экран") -> {
+                openScreen()
+                return
+            }
 
             text.contains("который час") || text.contains("сколько времени") -> {
                 val time = SimpleDateFormat("HH:mm", Locale("ru")).format(Date())
                 respond("Сейчас $time")
+                return
             }
 
-            text.contains("привет") || text.contains("здравствуй") ->
-                respond("Привет! Я тут. Скажи «что на экране» или просто спроси что угодно.")
+            text.contains("привет") && text.length < 25 -> {
+                respond("Привет! Я тут. Скажи «Никси» или просто спроси что угодно.")
+                return
+            }
 
             text.contains("закройся") || text.contains("спрячься") -> {
                 hideAnswerPanel()
-                setState("здесь")
+                setState("Никси")
+                scheduleWake(300)
+                return
             }
-
-            else -> askAi(raw)
         }
+
+        val action = Actions.tryHandle(this, raw)
+        if (action != null) {
+            respond(action)
+            return
+        }
+
+        askAi(raw)
     }
 
     private fun askAi(prompt: String) {
@@ -307,19 +495,33 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             respond("Впиши ключ OpenRouter в приложении Nixi и нажми «Сохранить».")
             return
         }
+
         busy = true
         setState("думаю…")
 
+        val persona = Prefs.persona(this)
+        val history = Prefs.history(this)
+
         val messages = JSONArray().apply {
-            put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+            put(JSONObject().put("role", "system").put("content", persona))
+            for (turn in history) {
+                put(JSONObject().put("role", turn.role).put("content", turn.content))
+            }
             put(JSONObject().put("role", "user").put("content", prompt))
         }
 
+        Prefs.addTurn(this, "user", prompt)
+
         val model = Prefs.textModel(this)
         Thread {
-            val answer = AiClient.chat(key, model, messages)
+            val answer = try {
+                AiClient.chat(key, model, messages)
+            } catch (t: Throwable) {
+                "Ошибка сети: ${t.message ?: "неизвестно"}"
+            }
             handler.post {
                 busy = false
+                if (answer.isNotBlank()) Prefs.addTurn(this, "assistant", answer)
                 respond(answer)
             }
         }.start()
@@ -363,8 +565,10 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         super.onDestroy()
         Bus.listener = null
+        handler.removeCallbacksAndMessages(null)
+        stopListen()
         try {
-            recognizer?.destroy()
+            pulse?.cancel()
         } catch (t: Throwable) {
             // ничего
         }
