@@ -31,18 +31,20 @@ class ScreenActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        @Suppress("DEPRECATION")
         startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CODE)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_CODE) return
+        if (requestCode != REQUEST_CODE) {
+            finish()
+            return
+        }
         if (resultCode != Activity.RESULT_OK || data == null) {
             Bus.emit("Ты не дал доступ к экрану, поэтому посмотреть не получилось")
             finish()
@@ -51,9 +53,10 @@ class ScreenActivity : AppCompatActivity() {
         captureAndAsk(resultCode, data)
     }
 
+    @Suppress("DEPRECATION")
     private fun captureAndAsk(resultCode: Int, data: Intent) {
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val projection = manager.getMediaProjection(resultCode, data)
+        val projection: MediaProjection? = manager.getMediaProjection(resultCode, data)
         if (projection == null) {
             Bus.emit("Не удалось получить доступ к экрану")
             finish()
