@@ -26,7 +26,6 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.LayoutInflater
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
@@ -53,6 +52,11 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         const val NOTIFICATION_ID = 42
         const val ACTION_STOP = "com.nagibatorz.nixi.STOP"
         private val WAKE_WORDS = listOf("никси", "никс и", "ники", "никс")
+
+        /** Запущена ли капсула прямо сейчас — чтобы экран приложения знал статус. */
+        @Volatile
+        var running: Boolean = false
+            private set
     }
 
     private enum class Mode { WAKE, COMMAND }
@@ -74,18 +78,13 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
     private var busy = false
     private var dotAnim: ObjectAnimator? = null
 
-    private var downRawX = 0f
-    private var downRawY = 0f
-    private var startX = 0
-    private var startY = 0
-    private var dragging = false
-
     private val ru: Locale = Locale.forLanguageTag("ru")
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        running = true
         startAsForeground()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         buildOverlay()
@@ -176,6 +175,8 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             cornerRadius = radiusPx
         }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
     private fun buildOverlay() {
         panel = LayoutInflater.from(this).inflate(R.layout.capsule, null)
         tvState = panel.findViewById(R.id.tvState)
@@ -184,8 +185,8 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         dot = panel.findViewById(R.id.viewDot)
 
         val capsuleRow = panel.findViewById<View>(R.id.capsuleRow)
-        capsuleRow.background = rounded(0xFF121212.toInt(), 999f)
-        actions.background = rounded(0xFF1A1A1A.toInt(), 48f)
+        capsuleRow.background = rounded(0xF2121218.toInt(), 999f)
+        actions.background = rounded(0xF21A1A22.toInt(), dp(18).toFloat())
         dot.background = rounded(0xFFFF7A18.toInt(), 999f)
 
         panel.findViewById<View>(R.id.btnMic).setOnClickListener {
@@ -207,65 +208,19 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = 0
-            y = 120
+            y = dp(52)
         }
 
-        capsuleRow.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    downRawX = event.rawX
-                    downRawY = event.rawY
-                    startX = params.x
-                    startY = params.y
-                    dragging = false
-                    true
-                }
-
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - downRawX).toInt()
-                    val dy = (event.rawY - downRawY).toInt()
-                    if (Math.abs(dx) > 16 || Math.abs(dy) > 16) dragging = true
-                    if (dragging) {
-                        params.x = startX + dx
-                        params.y = startY + dy
-                        try {
-                            windowManager.updateViewLayout(panel, params)
-                        } catch (t: Throwable) {
-                            // окно уже убрали
-                        }
-                    }
-                    true
-                }
-
-                MotionEvent.ACTION_UP -> {
-                    if (!dragging) onCapsuleTap()
-                    dragging = false
-                    true
-                }
-
-                else -> false
-            }
-        }
+        // Капсула закреплена сверху по центру: тап = слушать, перетаскивания нет.
+        capsuleRow.setOnClickListener { onCapsuleTap() }
 
         try {
             windowManager.addView(panel, params)
-            panel.post {
-                val screenWidth = resources.displayMetrics.widthPixels
-                if (panel.width > 0 && panel.width < screenWidth) {
-                    params.x = (screenWidth - panel.width) / 2
-                    try {
-                        windowManager.updateViewLayout(panel, params)
-                    } catch (t: Throwable) {
-                        // окно уже убрали
-                    }
-                }
-            }
         } catch (t: Throwable) {
             Toast.makeText(this, "Нет разрешения «поверх других приложений»", Toast.LENGTH_LONG).show()
             stopSelf()
@@ -519,6 +474,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
         }
 
         Prefs.addTurn(this, "user", prompt)
+        Prefs.appendMessage(this, Prefs.currentChat(this).ifBlank { Prefs.newChatId() }, "user", prompt)
 
         val model = Prefs.textModel(this)
         Thread {
@@ -544,6 +500,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
             startActivity(intent)
         } catch (t: Throwable) {
             respond("Не получилось открыть захват экрана: ${t.message ?: "неизвестно"}")
+            setState("ошибка экрана")
         }
     }
 
@@ -572,6 +529,7 @@ class CapsuleService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        running = false
         Bus.listener = null
         handler.removeCallbacksAndMessages(null)
         stopListen()
