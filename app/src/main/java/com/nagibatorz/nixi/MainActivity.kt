@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
             append(if (key) "✅ Ключ OpenRouter есть" else "❌ Ключ OpenRouter не вписан")
             append("\n")
             append(if (wake) "✅ Кодовое слово «Никси» включено" else "⭕ Кодовое слово выключено")
-            val turns = Prefs.history(this).size
+            val turns = Prefs.history(this@MainActivity).size
             append("\n")
             append("💬 В истории диалога реплик: $turns")
         }
