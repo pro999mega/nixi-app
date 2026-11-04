@@ -12,6 +12,7 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -20,6 +21,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etKey: EditText
     private lateinit var etTextModel: EditText
     private lateinit var etVisionModel: EditText
+    private lateinit var etPersona: EditText
+    private lateinit var swWake: SwitchCompat
     private lateinit var tvStatus: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,15 +32,21 @@ class MainActivity : AppCompatActivity() {
         etKey = findViewById(R.id.etKey)
         etTextModel = findViewById(R.id.etTextModel)
         etVisionModel = findViewById(R.id.etVisionModel)
+        etPersona = findViewById(R.id.etPersona)
+        swWake = findViewById(R.id.swWake)
         tvStatus = findViewById(R.id.tvStatus)
 
         etKey.setText(Prefs.apiKey(this))
         etTextModel.setText(Prefs.textModel(this))
         etVisionModel.setText(Prefs.visionModel(this))
+        etPersona.setText(Prefs.persona(this))
+        swWake.isChecked = Prefs.wakeWord(this)
 
         findViewById<Button>(R.id.btnSave).setOnClickListener {
             Prefs.setApiKey(this, etKey.text.toString())
             Prefs.setModels(this, etTextModel.text.toString(), etVisionModel.text.toString())
+            Prefs.setPersona(this, etPersona.text.toString())
+            Prefs.setWakeWord(this, swWake.isChecked)
             refreshStatus()
             toast("Сохранено")
         }
@@ -63,6 +72,11 @@ class MainActivity : AppCompatActivity() {
             } else {
                 toast("На этой версии Android уведомления не спрашиваются")
             }
+        }
+
+        findViewById<Button>(R.id.btnClearHistory).setOnClickListener {
+            Prefs.clearHistory(this)
+            toast("История диалога очищена")
         }
 
         findViewById<Button>(R.id.btnStart).setOnClickListener { startCapsule() }
@@ -93,6 +107,7 @@ class MainActivity : AppCompatActivity() {
             this, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
         val key = Prefs.apiKey(this).isNotBlank()
+        val wake = Prefs.wakeWord(this)
 
         tvStatus.text = buildString {
             append(if (overlay) "✅ Поверх приложений разрешено" else "❌ Поверх приложений — нажми кнопку 1")
@@ -100,6 +115,11 @@ class MainActivity : AppCompatActivity() {
             append(if (mic) "✅ Микрофон разрешён" else "❌ Микрофон — нажми кнопку 2")
             append("\n")
             append(if (key) "✅ Ключ OpenRouter есть" else "❌ Ключ OpenRouter не вписан")
+            append("\n")
+            append(if (wake) "✅ Кодовое слово «Никси» включено" else "⭕ Кодовое слово выключено")
+            val turns = Prefs.history(this).size
+            append("\n")
+            append("💬 В истории диалога реплик: $turns")
         }
     }
 
@@ -119,8 +139,12 @@ class MainActivity : AppCompatActivity() {
             toast("Впиши ключ OpenRouter и нажми «Сохранить»")
             return
         }
+        Prefs.setWakeWord(this, swWake.isChecked)
         ContextCompat.startForegroundService(this, Intent(this, CapsuleService::class.java))
-        toast("Капсула сверху — нажми на неё и скажи «привет»")
+        toast(
+            if (swWake.isChecked) "Капсула сверху. Скажи «Никси» или нажми на неё"
+            else "Капсула сверху — нажми на неё и говори"
+        )
         moveTaskToBack(true)
     }
 
