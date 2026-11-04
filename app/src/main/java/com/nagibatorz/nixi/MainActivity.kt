@@ -2,10 +2,18 @@ package com.nagibatorz.nixi
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -28,58 +36,132 @@ import org.json.JSONObject
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Random
 
 class MainActivity : AppCompatActivity() {
 
     private data class Message(val role: String, val text: String)
+
+    private class SakuraBackgroundView(context: Context) : View(context) {
+        private class Petal(
+            var x: Float,
+            var y: Float,
+            var size: Float,
+            var speedY: Float,
+            var speedX: Float,
+            var angle: Float,
+            var spinSpeed: Float,
+            var alpha: Int,
+            var color: Int
+        )
+
+        private val petals = mutableListOf<Petal>()
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val path = Path()
+        private val random = Random()
+        private val handler = Handler(Looper.getMainLooper())
+        private val animator = object : Runnable {
+            override fun run() {
+                updatePetals()
+                invalidate()
+                handler.postDelayed(this, 35)
+            }
+        }
+
+        init {
+            val colors = intArrayOf(
+                Color.parseColor("#FFD6E7"),
+                Color.parseColor("#FFB3C9"),
+                Color.parseColor("#F7A8C4")
+            )
+            for (i in 0 until 22) {
+                petals.add(
+                    Petal(
+                        x = random.nextFloat() * 1080f,
+                        y = random.nextFloat() * 1920f,
+                        size = 6f + random.nextFloat() * 8f,
+                        speedY = 1.2f + random.nextFloat() * 1.8f,
+                        speedX = -0.5f + random.nextFloat() * 1.0f,
+                        angle = random.nextFloat() * 360f,
+                        spinSpeed = -2f + random.nextFloat() * 4f,
+                        alpha = 50 + random.nextInt(81),
+                        color = colors[random.nextInt(colors.size)]
+                    )
+                )
+            }
+            handler.post(animator)
+        }
+
+        private fun updatePetals() {
+            val w = if (width > 0) width.toFloat() else 1080f
+            val h = if (height > 0) height.toFloat() else 1920f
+            for (p in petals) {
+                p.y += p.speedY
+                p.x += p.speedX + Math.sin((p.y * 0.01).toDouble()).toFloat() * 0.5f
+                p.angle += p.spinSpeed
+                if (p.y > h + 30f) {
+                    p.y = -30f
+                    p.x = random.nextFloat() * w
+                }
+                if (p.x < -30f) p.x = w + 30f
+                if (p.x > w + 30f) p.x = -30f
+            }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            for (p in petals) {
+                canvas.save()
+                canvas.translate(p.x, p.y)
+                canvas.rotate(p.angle)
+                paint.color = p.color
+                paint.alpha = p.alpha
+                path.reset()
+                val s = p.size
+                path.moveTo(0f, -s)
+                path.quadTo(s * 0.8f, -s * 0.3f, 0f, s)
+                path.quadTo(-s * 0.8f, -s * 0.3f, 0f, -s)
+                canvas.drawPath(path, paint)
+                canvas.restore()
+            }
+        }
+
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            handler.removeCallbacks(animator)
+        }
+    }
 
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var chatContainer: LinearLayout
     private lateinit var chatScrollView: ScrollView
     private lateinit var inputField: EditText
     private lateinit var chatsListContainer: LinearLayout
-    
-    private val messages = mutableListOf<Message>()
-    private var typingIndicatorView: View? = nilView()
 
-    private fun nilView(): View? = null
+    private val messages = mutableListOf<Message>()
+    private var typingIndicatorView: View? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        val rootLayout = createRootLayout()
-        setContentView(rootLayout)
-        
-        loadHistoryIntoMemory()
+        val root = createRootLayout()
+        setContentView(root)
+
+        loadHistory()
         renderChatMessages()
         renderDrawerChats()
-        
-        checkApiKeyOnStart()
+        checkApiKeyAndPrompt()
     }
 
-    private fun checkApiKeyOnStart() {
-        if (getApiKey().isEmpty()) {
+    private fun checkApiKeyAndPrompt() {
+        val sp = getSharedPreferences("nixi", Context.MODE_PRIVATE)
+        val apiKey = sp.getString("apiKey", "").orEmpty().trim()
+        if (apiKey.isEmpty()) {
             Toast.makeText(this, "Добавь ключ OpenRouter в настройках", Toast.LENGTH_LONG).show()
-            openSettingsActivity()
+            openSettings()
         }
     }
 
-    private fun getApiKey(): String {
-        val prefsNames = listOf("nixi_prefs", "nixi", "settings")
-        val keys = listOf("api_key", "openrouter_key", "key", "token")
-        for (name in prefsNames) {
-            val sp = getSharedPreferences(name, Context.MODE_PRIVATE)
-            for (key in keys) {
-                val value = sp.getString(key, null)
-                if (!value.isNullOrBlank()) {
-                    return value.trim()
-                }
-            }
-        }
-        return ""
-    }
-
-    private fun openSettingsActivity() {
+    private fun openSettings() {
         runCatching {
             startActivity(Intent(this, Class.forName("com.nagibatorz.nixi.SettingsActivity")))
         }.onFailure {
@@ -87,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun startCapsuleService() {
+    private fun startCapsule() {
         runCatching {
             startService(Intent().setClassName(packageName, "com.nagibatorz.nixi.CapsuleService"))
         }.onFailure {
@@ -95,13 +177,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun round(color: Int, radiusDp: Float, strokeWidthDp: Int, strokeColor: Int): GradientDrawable {
+    private fun round(
+        color: Int,
+        radiusDp: Float,
+        strokeWidthDp: Int,
+        strokeColor: Int
+    ): GradientDrawable {
         val d = GradientDrawable()
         d.shape = GradientDrawable.RECTANGLE
         if (radiusDp > 0f) {
             d.cornerRadius = radiusDp * resources.displayMetrics.density
         }
         d.setColor(color)
+        if (strokeWidthDp > 0) {
+            d.setStroke((strokeWidthDp * resources.displayMetrics.density).toInt(), strokeColor)
+        }
+        return d
+    }
+
+    private fun roundGradient(
+        colors: IntArray,
+        orientation: GradientDrawable.Orientation,
+        radiusDp: Float,
+        strokeWidthDp: Int,
+        strokeColor: Int
+    ): GradientDrawable {
+        val d = GradientDrawable(orientation, colors)
+        d.shape = GradientDrawable.RECTANGLE
+        if (radiusDp > 0f) {
+            d.cornerRadius = radiusDp * resources.displayMetrics.density
+        }
         if (strokeWidthDp > 0) {
             d.setStroke((strokeWidthDp * resources.displayMetrics.density).toInt(), strokeColor)
         }
@@ -118,16 +223,30 @@ class MainActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            setBackgroundColor(Color.parseColor("#0B0B0D"))
+            setBackgroundColor(Color.parseColor("#120A10"))
         }
 
-        val mainContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val frameRoot = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            setBackgroundColor(Color.parseColor("#0B0B0D"))
+        }
+
+        val bgView = SakuraBackgroundView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        frameRoot.addView(bgView)
+
+        val mainContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
         }
 
         // Header
@@ -135,7 +254,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = round(Color.parseColor("#15151B"), 0f, 1, Color.parseColor("#25252E"))
+            background = round(Color.parseColor("#221420"), 0f, 1, Color.parseColor("#3A2130"))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -145,7 +264,7 @@ class MainActivity : AppCompatActivity() {
         val menuBtn = TextView(this).apply {
             text = "☰"
             textSize = 24f
-            setTextColor(Color.parseColor("#EDEDF1"))
+            setTextColor(Color.parseColor("#F7EEF3"))
             setPadding(dp(4), dp(4), dp(12), dp(4))
             setOnClickListener {
                 drawerLayout.openDrawer(GravityCompat.START)
@@ -156,27 +275,43 @@ class MainActivity : AppCompatActivity() {
             text = "Никси"
             textSize = 22f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#FF7A18"))
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            post {
+                val shader = LinearGradient(
+                    0f, 0f, measuredWidth.toFloat(), 0f,
+                    Color.parseColor("#FF8FB1"),
+                    Color.parseColor("#FFB37A"),
+                    Shader.TileMode.CLAMP
+                )
+                paint.shader = shader
+                invalidate()
+            }
         }
 
-        val addChatBtn = TextView(this).apply {
-            text = "＋"
-            textSize = 26f
-            setTextColor(Color.parseColor("#EDEDF1"))
-            setPadding(dp(12), dp(4), dp(4), dp(4))
+        val addChatCircle = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            background = round(Color.parseColor("#221420"), 20f, 1, Color.parseColor("#3A2130"))
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
             setOnClickListener {
                 clearCurrentChat()
             }
         }
+        val plusText = TextView(this).apply {
+            text = "＋"
+            textSize = 20f
+            setTextColor(Color.parseColor("#FF8FB1"))
+            gravity = Gravity.CENTER
+        }
+        addChatCircle.addView(plusText)
 
         header.addView(menuBtn)
         header.addView(titleView)
-        header.addView(addChatBtn)
+        header.addView(addChatCircle)
         mainContent.addView(header)
 
-        // Chips strip
+        // Chips
         val chipsScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setPadding(dp(16), dp(8), dp(16), dp(8))
@@ -200,20 +335,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         chipsContainer.addView(createChip("Капсула") {
-            startCapsuleService()
+            startCapsule()
         })
         chipsContainer.addView(createChip("Новый чат") {
             clearCurrentChat()
         })
         chipsContainer.addView(createChip("Настройки") {
-            openSettingsActivity()
+            openSettings()
         })
 
         chipsFrame.addView(chipsContainer)
         chipsScroll.addView(chipsFrame)
         mainContent.addView(chipsScroll)
 
-        // Chat messages scroll
+        // Chat list
         chatScrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -242,12 +377,12 @@ class MainActivity : AppCompatActivity() {
         chatScrollView.addView(chatScrollFrame)
         mainContent.addView(chatScrollView)
 
-        // Bottom input bar
+        // Bottom input
         val bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = round(Color.parseColor("#15151B"), 0f, 1, Color.parseColor("#25252E"))
+            background = round(Color.parseColor("#221420"), 0f, 1, Color.parseColor("#3A2130"))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -256,11 +391,11 @@ class MainActivity : AppCompatActivity() {
 
         inputField = EditText(this).apply {
             hint = "Сообщение…"
-            setHintTextColor(Color.parseColor("#8B8B95"))
-            setTextColor(Color.parseColor("#EDEDF1"))
+            setHintTextColor(Color.parseColor("#A98B9C"))
+            setTextColor(Color.parseColor("#F7EEF3"))
             textSize = 15f
-            background = round(Color.parseColor("#0B0B0D"), 22f, 1, Color.parseColor("#25252E"))
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = round(Color.parseColor("#1A0E15"), 24f, 1, Color.parseColor("#3A2130"))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
             imeOptions = EditorInfo.IME_ACTION_SEND
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -268,7 +403,7 @@ class MainActivity : AppCompatActivity() {
             }
             setOnEditorActionListener { _, actionId, event ->
                 if (actionId == EditorInfo.IME_ACTION_SEND || (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
-                    handleSendMessage()
+                    handleSend()
                     true
                 } else {
                     false
@@ -278,11 +413,15 @@ class MainActivity : AppCompatActivity() {
 
         val sendBtn = ImageButton(this).apply {
             setImageDrawable(androidx.core.content.ContextCompat.getDrawable(context, android.R.drawable.ic_menu_send))
-            background = round(Color.parseColor("#FF7A18"), 24f, 0, 0)
+            background = roundGradient(
+                intArrayOf(Color.parseColor("#E05C8A"), Color.parseColor("#FF8FB1")),
+                GradientDrawable.Orientation.TL_BR,
+                25f, 0, 0
+            )
             setPadding(dp(12), dp(12), dp(12), dp(12))
-            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+            layoutParams = LinearLayout.LayoutParams(dp(50), dp(50))
             setOnClickListener {
-                handleSendMessage()
+                handleSend()
             }
         }
 
@@ -290,9 +429,9 @@ class MainActivity : AppCompatActivity() {
         bottomBar.addView(sendBtn)
         mainContent.addView(bottomBar)
 
-        drawerLayout.addView(mainContent)
+        frameRoot.addView(mainContent)
+        drawerLayout.addView(frameRoot)
 
-        // Side drawer view
         val drawerView = createDrawerView()
         val drawerParams = DrawerLayout.LayoutParams(
             dp(300),
@@ -310,23 +449,34 @@ class MainActivity : AppCompatActivity() {
         return TextView(this).apply {
             this.text = text
             textSize = 13f
-            setTextColor(Color.parseColor("#EDEDF1"))
-            background = round(Color.parseColor("#15151B"), 18f, 1, Color.parseColor("#25252E"))
+            setTextColor(Color.parseColor("#F7EEF3"))
+            background = round(Color.parseColor("#221420"), 18f, 1, Color.parseColor("#3A2130"))
             setPadding(dp(14), dp(8), dp(14), dp(8))
-            setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 rightMargin = dp(8)
             }
+            setOnTouchListener { v, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        v.animate().scaleX(0.96f).scaleY(0.96f).setDuration(120).start()
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
+                    }
+                }
+                false
+            }
+            setOnClickListener { onClick() }
         }
     }
 
     private fun createDrawerView(): View {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#15151B"))
+            setBackgroundColor(Color.parseColor("#170D13"))
             setPadding(dp(16), dp(36), dp(16), dp(16))
             isClickable = true
             isFocusable = true
@@ -336,7 +486,7 @@ class MainActivity : AppCompatActivity() {
             text = "Чаты"
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#EDEDF1"))
+            setTextColor(Color.parseColor("#F7EEF3"))
             setPadding(0, 0, 0, dp(16))
         }
         layout.addView(title)
@@ -344,8 +494,8 @@ class MainActivity : AppCompatActivity() {
         val newChatBtn = TextView(this).apply {
             text = "＋ Новый чат"
             textSize = 15f
-            setTextColor(Color.parseColor("#FF7A18"))
-            background = round(Color.parseColor("#0B0B0D"), 16f, 1, Color.parseColor("#25252E"))
+            setTextColor(Color.parseColor("#FF8FB1"))
+            background = round(Color.parseColor("#221420"), 16f, 1, Color.parseColor("#3A2130"))
             setPadding(dp(14), dp(12), dp(14), dp(12))
             setOnClickListener {
                 drawerLayout.closeDrawer(GravityCompat.START)
@@ -387,11 +537,11 @@ class MainActivity : AppCompatActivity() {
         val settingsBtn = TextView(this).apply {
             text = "⚙ Настройки"
             textSize = 15f
-            setTextColor(Color.parseColor("#8B8B95"))
+            setTextColor(Color.parseColor("#A98B9C"))
             setPadding(dp(12), dp(14), dp(12), dp(14))
             setOnClickListener {
                 drawerLayout.closeDrawer(GravityCompat.START)
-                openSettingsActivity()
+                openSettings()
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -407,12 +557,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderDrawerChats() {
         chatsListContainer.removeAllViews()
-        val sampleDialog = TextView(this).apply {
+        val item = TextView(this).apply {
             text = if (messages.isNotEmpty()) messages[0].text.take(24) + "..." else "Текущий диалог"
             textSize = 14f
-            setTextColor(Color.parseColor("#EDEDF1"))
+            setTextColor(Color.parseColor("#F7EEF3"))
             setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = round(Color.parseColor("#0B0B0D"), 12f, 0, 0)
+            background = round(Color.parseColor("#221420"), 12f, 1, Color.parseColor("#3A2130"))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -420,28 +570,25 @@ class MainActivity : AppCompatActivity() {
                 bottomMargin = dp(8)
             }
         }
-        chatsListContainer.addView(sampleDialog)
+        chatsListContainer.addView(item)
     }
 
-    private fun loadHistoryIntoMemory() {
+    private fun loadHistory() {
         messages.clear()
-        val sp = getSharedPreferences("nixi_history", Context.MODE_PRIVATE)
+        val sp = getSharedPreferences("nixi_chats", Context.MODE_PRIVATE)
         val jsonStr = sp.getString("messages", null) ?: return
         try {
             val arr = JSONArray(jsonStr)
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                val role = obj.getString("role")
-                val text = obj.getString("text")
-                messages.add(Message(role, text))
+                messages.add(Message(obj.getString("role"), obj.getString("text")))
             }
         } catch (e: Exception) {
-            // ignore corrupt history
         }
     }
 
-    private fun saveHistoryFromMemory() {
-        val sp = getSharedPreferences("nixi_history", Context.MODE_PRIVATE)
+    private fun saveHistory() {
+        val sp = getSharedPreferences("nixi_chats", Context.MODE_PRIVATE)
         val arr = JSONArray()
         for (m in messages) {
             val obj = JSONObject()
@@ -454,7 +601,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun clearCurrentChat() {
         messages.clear()
-        saveHistoryFromMemory()
+        saveHistory()
         renderChatMessages()
         renderDrawerChats()
     }
@@ -462,7 +609,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderChatMessages() {
         chatContainer.removeAllViews()
         for (m in messages) {
-            addBubbleView(m.role, m.text, false)
+            addBubble(m.role, m.text, false)
         }
         if (typingIndicatorView != null) {
             chatContainer.addView(typingIndicatorView)
@@ -470,16 +617,19 @@ class MainActivity : AppCompatActivity() {
         scrollToBottom()
     }
 
-    private fun addBubbleView(role: String, text: String, animate: Boolean) {
+    private fun addBubble(role: String, text: String, animate: Boolean) {
         val isUser = role == "user"
-        
         val bubbleLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
             background = if (isUser) {
-                round(Color.parseColor("#FF7A18"), 20f, 0, 0)
+                roundGradient(
+                    intArrayOf(Color.parseColor("#E05C8A"), Color.parseColor("#FF8FB1")),
+                    GradientDrawable.Orientation.TL_BR,
+                    22f, 0, 0
+                )
             } else {
-                round(Color.parseColor("#1A1A22"), 20f, 1, Color.parseColor("#25252E"))
+                round(Color.parseColor("#221420"), 22f, 1, Color.parseColor("#3A2130"))
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -493,17 +643,16 @@ class MainActivity : AppCompatActivity() {
         val tv = TextView(this).apply {
             this.text = text
             textSize = 15f
-            setTextColor(if (isUser) Color.parseColor("#101014") else Color.parseColor("#EDEDF1"))
-            maxWidth = (resources.displayMetrics.widthPixels * 0.85).toInt()
+            setTextColor(if (isUser) Color.parseColor("#1A0E15") else Color.parseColor("#F7EEF3"))
+            maxWidth = (resources.displayMetrics.widthPixels * 0.84).toInt()
         }
         bubbleLayout.addView(tv)
-
         chatContainer.addView(bubbleLayout)
 
         if (animate) {
             bubbleLayout.alpha = 0f
-            bubbleLayout.translationY = dp(15).toFloat()
-            bubbleLayout.animate().alpha(1f).translationY(0f).setDuration(250).start()
+            bubbleLayout.translationY = dp(14).toFloat()
+            bubbleLayout.animate().alpha(1f).translationY(0f).setDuration(260).start()
         }
     }
 
@@ -512,7 +661,7 @@ class MainActivity : AppCompatActivity() {
         val bubbleLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = round(Color.parseColor("#1A1A22"), 20f, 1, Color.parseColor("#25252E"))
+            background = round(Color.parseColor("#221420"), 22f, 1, Color.parseColor("#3A2130"))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -525,7 +674,7 @@ class MainActivity : AppCompatActivity() {
         val tv = TextView(this).apply {
             text = "печатает…"
             textSize = 14f
-            setTextColor(Color.parseColor("#8B8B95"))
+            setTextColor(Color.parseColor("#A98B9C"))
         }
         bubbleLayout.addView(tv)
         typingIndicatorView = bubbleLayout
@@ -547,35 +696,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleSendMessage() {
+    private fun handleSend() {
         val text = inputField.text.toString().trim()
         if (text.isEmpty()) return
         inputField.setText("")
 
         messages.add(Message("user", text))
-        saveHistoryFromMemory()
-        addBubbleView("user", text, true)
+        saveHistory()
+        addBubble("user", text, true)
         scrollToBottom()
         renderDrawerChats()
 
         showTypingIndicator()
 
         Thread {
-            callOpenRouterApi(text)
+            callApi(text)
         }.start()
     }
 
-    private fun callOpenRouterApi(userText: String) {
+    private fun callApi(userText: String) {
         try {
-            val apiKey = getApiKey()
+            val sp = getSharedPreferences("nixi", Context.MODE_PRIVATE)
+            val apiKey = sp.getString("apiKey", "").orEmpty().trim()
             if (apiKey.isEmpty()) {
                 runOnUiThread {
                     removeTypingIndicator()
                     Toast.makeText(this, "Добавь ключ OpenRouter в настройках", Toast.LENGTH_LONG).show()
-                    openSettingsActivity()
+                    openSettings()
                 }
                 return
             }
+
+            val textModel = sp.getString("textModel", "google/gemma-4-31b-it:free").orEmpty().ifBlank { "google/gemma-4-31b-it:free" }
+            val persona = sp.getString("persona", "Ты Никси — голосовой ассистент внутри телефона. Отвечай по-русски, дружелюбно и очень коротко: одно-три предложения, без списков, без markdown и без эмодзи.").orEmpty()
 
             val url = URL("https://openrouter.ai/api/v1/chat/completions")
             val conn = url.openConnection() as HttpURLConnection
@@ -583,20 +736,21 @@ class MainActivity : AppCompatActivity() {
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Authorization", "Bearer $apiKey")
             conn.doOutput = true
-            conn.connectTimeout = 15000
-            conn.readTimeout = 15000
+            conn.connectTimeout = 20000
+            conn.readTimeout = 20000
 
             val messagesArray = JSONArray()
+            if (persona.isNotEmpty()) {
+                messagesArray.put(JSONObject().put("role", "system").put("content", persona))
+            }
+
             val slice = messages.takeLast(12)
             for (m in slice) {
-                val obj = JSONObject()
-                obj.put("role", m.role)
-                obj.put("content", m.text)
-                messagesArray.put(obj)
+                messagesArray.put(JSONObject().put("role", m.role).put("content", m.text))
             }
 
             val body = JSONObject()
-            body.put("model", "google/gemini-2.0-flash-001")
+            body.put("model", textModel)
             body.put("messages", messagesArray)
 
             conn.outputStream.use { os ->
@@ -612,38 +766,37 @@ class MainActivity : AppCompatActivity() {
                 val json = JSONObject(responseStr)
                 val choices = json.getJSONArray("choices")
                 if (choices.length() > 0) {
-                    val messageObj = choices.getJSONObject(0).getJSONObject("message")
-                    val content = messageObj.getString("content").trim()
+                    val content = choices.getJSONObject(0).getJSONObject("message").getString("content").trim()
                     runOnUiThread {
                         removeTypingIndicator()
                         messages.add(Message("assistant", content))
-                        saveHistoryFromMemory()
-                        addBubbleView("assistant", content, true)
+                        saveHistory()
+                        addBubble("assistant", content, true)
                         scrollToBottom()
                         renderDrawerChats()
                     }
                 } else {
-                    handleApiError()
+                    handleError()
                 }
             } else {
-                handleApiError()
+                handleError()
             }
         } catch (e: Exception) {
-            handleApiError()
+            handleError()
         }
     }
 
-    private fun handleApiError() {
+    private fun handleError() {
         runOnUiThread {
             removeTypingIndicator()
-            val errorText = "Не удалось получить ответ"
-            messages.add(Message("assistant", errorText))
-            saveHistoryFromMemory()
-            
+            val err = "Не удалось получить ответ"
+            messages.add(Message("assistant", err))
+            saveHistory()
+
             val bubbleLayout = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(14), dp(12), dp(14), dp(12))
-                background = round(Color.parseColor("#1A1A22"), 20f, 1, Color.parseColor("#25252E"))
+                background = round(Color.parseColor("#221420"), 22f, 1, Color.parseColor("#3A2130"))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -653,9 +806,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             val tv = TextView(this).apply {
-                text = errorText
+                text = err
                 textSize = 15f
-                setTextColor(Color.parseColor("#8B8B95"))
+                setTextColor(Color.parseColor("#A98B9C"))
             }
             bubbleLayout.addView(tv)
             chatContainer.addView(bubbleLayout)
