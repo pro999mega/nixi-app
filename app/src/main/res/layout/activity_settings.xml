@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0B0B0F"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/btnBack"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:text="←"
+            android:textColor="#E8E8EE"
+            android:textSize="22sp" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.06"
+                android:text="НАСТРОЙКИ"
+                android:textColor="#FFFFFF"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ключ, модели, разрешения"
+                android:textColor="#7A7A85"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="18dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="18dp"
+            android:paddingBottom="28dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:letterSpacing="0.1"
+                android:text="ПОДКЛЮЧЕНИЕ"
+                android:textColor="#5E5E6B"
+                android:textSize="10sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ключ OpenRouter"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etKey"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:hint="sk-or-v1-..."
+                android:inputType="text"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#5A5A6B"
+                android:textSize="15sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Модель для разговора"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etTextModel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:hint="google/gemma-4-31b-it:free"
+                android:inputType="text"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#5A5A6B"
+                android:textSize="15sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Модель для экрана (со зрением)"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etVisionModel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="18dp"
+                android:hint="google/gemma-4-31b-it:free"
+                android:inputType="text"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#5A5A6B"
+                android:textSize="15sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:letterSpacing="0.1"
+                android:text="ХАРАКТЕР"
+                android:textColor="#5E5E6B"
+                android:textSize="10sp" />
+
+            <EditText
+                android:id="@+id/etPersona"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:gravity="top"
+                android:hint="Как Никси должен общаться"
+                android:inputType="textMultiLine"
+                android:minLines="4"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#5A5A6B"
+                android:textSize="14sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swWake"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:text="Слушать кодовое слово «Никси»"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnSave"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:backgroundTint="#FF7A18"
+                android:text="СОХРАНИТЬ"
+                android:textColor="#0B0B0F"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:layout_marginBottom="6dp"
+                android:letterSpacing="0.1"
+                android:text="РАЗРЕШЕНИЯ"
+                android:textColor="#5E5E6B"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/btnOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:backgroundTint="#1C1C24"
+                android:text="Поверх других приложений"
+                android:textColor="#E8E8EE"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnMic"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#1C1C24"
+                android:text="Разрешить микрофон"
+                android:textColor="#E8E8EE"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnNotifications"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#1C1C24"
+                android:text="Разрешить уведомления"
+                android:textColor="#E8E8EE"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:layout_marginBottom="6dp"
+                android:letterSpacing="0.1"
+                android:text="СОСТОЯНИЕ"
+                android:textColor="#5E5E6B"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:background="#12121A"
+                android:lineSpacingExtra="4dp"
+                android:padding="16dp"
+                android:textColor="#D0D0DC"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnStart"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:backgroundTint="#FF7A18"
+                android:text="ЗАПУСТИТЬ КАПСУЛУ"
+                android:textColor="#0B0B0F"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#1C1C24"
+                android:text="Остановить"
+                android:textColor="#E8E8EE"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnClearHistory"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#2A1414"
+                android:text="Очистить историю и чаты"
+                android:textColor="#FF8A8A"
+                android:textSize="14sp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>
