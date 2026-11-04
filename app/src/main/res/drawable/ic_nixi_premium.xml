@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Тёмная премиальная подложка -->
+    <path android:pathData="M54,0 C83.8,0 108,24.2 108,54 C108,83.8 83.8,108 54,108 C24.2,108 0,83.8 0,54 C0,24.2 24.2,0 54,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:startColor="#1E1E28"
+                android:endColor="#08080C" />
+        </aapt:attr>
+    </path>
+
+    <!-- Мягкое свечение под капсулой -->
+    <path
+        android:pathData="M36,44 H72 A10,10 0 0 1 82,54 A10,10 0 0 1 72,64 H36 A10,10 0 0 1 26,54 A10,10 0 0 1 36,44 Z"
+        android:fillColor="#33FF7A18" />
+
+    <!-- Оранжевая капсула -->
+    <path android:pathData="M36,40 H72 A14,14 0 0 1 86,54 A14,14 0 0 1 72,68 H36 A14,14 0 0 1 22,54 A14,14 0 0 1 36,40 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="22"
+                android:startY="40"
+                android:endX="86"
+                android:endY="68"
+                android:startColor="#FFA04A"
+                android:endColor="#F26600" />
+        </aapt:attr>
+    </path>
+
+    <!-- Волна голоса -->
+    <path
+        android:pathData="M43,47 h5 v14 h-5 z"
+        android:fillColor="#0B0B0F" />
+    <path
+        android:pathData="M51,43 h5 v22 h-5 z"
+        android:fillColor="#0B0B0F" />
+    <path
+        android:pathData="M59,49 h5 v10 h-5 z"
+        android:fillColor="#0B0B0F" />
+
+    <!-- Тонкий блик по верхней кромке -->
+    <path
+        android:pathData="M36,41.5 H72 A12.5,12.5 0 0 1 83.5,49"
+        android:strokeColor="#66FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+</vector>
